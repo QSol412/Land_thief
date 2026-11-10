@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Territory Canvas</title>
+<style>
+:root{--bg:#10131a;--pn:#1a1f2b;--ink:#e8ecf4;--dim:#8b95a8;--acc:#4da3ff;--bad:#ff6b6b;--ok:#4cd98a}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px system-ui,sans-serif;overflow:hidden}
+#wrap{position:fixed;inset:0 0 0 0;display:flex}
+#view{flex:1;position:relative;overflow:hidden;cursor:crosshair;touch-action:none}
+canvas{position:absolute;left:0;top:0;image-rendering:pixelated}
+#side{width:300px;background:var(--pn);border-left:1px solid #2a3142;padding:12px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+h1{font-size:17px;margin:0}
+h3{font-size:12px;margin:0 0 6px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.card{background:#141925;border:1px solid #2a3142;border-radius:10px;padding:10px}
+button{background:var(--acc);color:#04101f;border:0;border-radius:8px;padding:8px 12px;font-weight:600;cursor:pointer;font-size:13px}
+button.alt{background:#2a3142;color:var(--ink)}
+button:disabled{opacity:.4;cursor:not-allowed}
+input{width:100%;background:#0e121b;border:1px solid #2a3142;border-radius:8px;padding:8px;color:var(--ink);margin:3px 0}
+input[type=color]{padding:0;height:34px}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.row>*{flex:1}
+.seg button{flex:1;background:#2a3142;color:var(--ink)}
+.seg button.on{background:var(--acc);color:#04101f}
+#timer{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+#msg{min-height:18px;font-size:13px}
+.err{color:var(--bad)}.good{color:var(--ok)}
+.lb div,.tm div{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:13px}
+.dot{width:12px;height:12px;border-radius:3px;flex:none}
+.sp{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#modal{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:9}
+#modal .card{width:min(360px,92vw);padding:18px}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{flex:1;background:#2a3142;color:var(--ink)}.tabs button.on{background:var(--acc);color:#04101f}
+#tip{position:absolute;pointer-events:none;background:#000c;padding:4px 8px;border-radius:6px;font-size:12px;display:none;z-index:3}
+button{transition:transform .1s,filter .15s}button:active:not(:disabled){transform:scale(.95)}button:hover:not(:disabled){filter:brightness(1.12)}
+#bar{height:6px;background:#0e121b;border-radius:4px;overflow:hidden;margin:6px 0}
+#barfill{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--ok));transition:width .5s linear}
+#go.ready{animation:glow 1.1s ease-in-out infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 #4cd98a66}50%{box-shadow:0 0 16px 5px #4cd98acc}}
+#timer.ready{animation:bob 1s ease-in-out infinite}
+@keyframes bob{50%{transform:scale(1.1)}}
+.shake{animation:shake .45s}
+@keyframes shake{20%{transform:translate(-6px,3px)}40%{transform:translate(6px,-3px)}60%{transform:translate(-4px,-2px)}80%{transform:translate(3px,2px)}}
+#banner{position:fixed;top:16%;left:50%;transform:translateX(-50%);font-size:26px;font-weight:800;padding:10px 22px;border-radius:14px;background:linear-gradient(135deg,#ffd34d,#ff8a4d);color:#2a1500;z-index:8;pointer-events:none;opacity:0;white-space:nowrap}
+#banner.show{animation:ban 2.2s ease forwards}
+@keyframes ban{0%{opacity:0;transform:translateX(-50%) scale(.3)}14%{opacity:1;transform:translateX(-50%) scale(1.18)}24%{transform:translateX(-50%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translateX(-50%) translateY(-34px)}}
+.card{animation:cin .4s ease}
+@keyframes cin{from{opacity:0;transform:translateY(10px)}}
+@media(max-width:760px){#wrap{flex-direction:column}#side{width:100%;height:46%;border-left:0;border-top:1px solid #2a3142}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="view"><canvas id="cv"></canvas><div id="tip"></div></div>
+  <div id="side">
+    <h1>🗺️ Territory Canvas</h1>
+    <div class="card" id="acct"></div>
+    <div class="card" id="turnBox" style="display:none">
+      <h3>Your turn</h3>
+      <div id="timer">--:--</div>
+      <div id="bar"><i id="barfill"></i></div>
+      <div id="landline" style="margin-bottom:4px;font-size:15px"></div>
+      <div style="color:var(--dim);margin:2px 0 8px" id="pw"></div>
+      <div class="row seg" id="acts">
+        <button data-a="claim" class="on">Claim</button>
+        <button data-a="wall">Wall</button>
+        <button data-a="attack">Attack</button>
+      </div>
+      <div style="color:var(--dim);font-size:12px;margin:8px 0" id="help"></div>
+      <div class="row"><button id="go">Confirm turn</button><button class="alt" id="clr">Clear</button></div>
+      <div id="msg"></div>
+    </div>
+    <div class="card" id="teamBox" style="display:none"></div>
+    <div class="card" id="noteBox" style="display:none"></div>
+    <div class="card"><h3>Leaderboard</h3><div class="lb" id="lb">Loading…</div></div>
+  </div>
+</div>
+<div id="banner"></div>
+<div id="modal"><div class="card">
+  <h1 style="text-align:center;margin-bottom:10px">🗺️ Territory Canvas</h1>
+  <div id="gstat" style="text-align:center;font-size:13px;margin-bottom:8px;color:var(--dim)">Connecting to the server…</div>
+  <div id="gbtn" style="display:flex;justify-content:center;min-height:4px;margin-bottom:8px"></div>
+  <div style="text-align:center;margin-bottom:8px"><a href="#" id="usepw" style="color:var(--dim);font-size:13px">Use a username and password instead</a></div>
+  <div id="pwBox" style="display:none">
+  <div class="tabs"><button id="tL" class="on">Log in</button><button id="tR">Sign up</button></div>
+  <input id="u" placeholder="Username" maxlength="20" autocomplete="username">
+  <input id="p" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+  <div id="regOnly" style="display:none">
+    <input id="tn" placeholder="Territory name (optional)" maxlength="24">
+    <label style="font-size:12px;color:var(--dim)">Your colour</label><input id="col" type="color" value="#e74c3c">
+  </div>
+  <button id="auth" style="width:100%;margin-top:8px">Log in</button>
+  </div>
+  <button id="gst" class="alt" style="width:100%;margin-top:6px">Play as guest</button>
+  <div id="aerr" class="err" style="margin-top:8px"></div>
+  <div style="margin-top:10px;text-align:center"><a href="#" id="guest" style="color:var(--dim)">Just watch the canvas</a></div>
+</div></div>
+
+<script>
+const API='/api/canvas/';
+const ALLOW_GUEST=true; // true = login screen shows a "Play as guest" button. Set to false to remove it.
+const $=id=>document.getElementById(id);
+let token=localStorage.getItem('tc_token')||'', me=null, world={cells:{},o:{},t:{},w:200,h:120,v:0}, action='claim', sel=[];
+const CELL=8; let scale=1, ox=0, oy=0, fx=[], raf=0, landShown=null;
+const fmt=ms=>{const s=Math.round(ms/1000);return s<60?s+'s':Math.floor(s/60)+'m'+(s%60?' '+s%60+'s':'')};
+function anim(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;draw()})}
+function fxAdd(o){if(fx.length<400){fx.push({t:performance.now(),...o});anim()}}
+function burst(cells,col){for(const [x,y] of cells)for(let i=0;i<12;i++){const a=Math.random()*6.283,s=6+Math.random()*16;fxAdd({k:'spark',x:x*CELL+CELL/2,y:y*CELL+CELL/2,vx:Math.cos(a)*s,vy:Math.sin(a)*s,c:col,d:700+Math.random()*500})}}
+function diffFx(a,b){let n=0;for(const k in b){if(n>150)break;const nw=b[k],od=a[k];if(od&&od[0]===nw[0]&&od[1]===nw[1])continue;
+  const [x,y]=k.split(',').map(Number),c=(world.o[nw[0]]||{}).c||'#fff';
+  if(!od)fxAdd({k:'pop',x,y,c,d:750});else if(od[0]!==nw[0])fxAdd({k:'cap',x,y,c,d:950});else if(nw[1]>od[1])fxAdd({k:'wall',x,y,c,d:650});else fxAdd({k:'hit',x,y,c,d:550});n++}}
+function banner(t){const b=$('banner');b.textContent=t;b.classList.remove('show');void b.offsetWidth;b.classList.add('show')}
+function shake(){view.classList.remove('shake');void view.offsetWidth;view.classList.add('shake')}
+function updLand(){
+  if(!me)return;
+  let n=0;for(const k in world.cells)if(world.cells[k][0]===me.owner)n++;
+  const el=$('landline');
+  if(landShown===null){landShown=n;el.innerHTML=`🏳️ Land: <b id="landn">${n}</b>`;return}
+  if(n===landShown)return;
+  const from=landShown,to=n;landShown=to;
+  if(to>from)for(const m of [5,10,25,50,100,250,500])if(from<m&&to>=m)banner(`🏆 ${m} squares!`);
+  el.innerHTML=`🏳️ Land: <b id="landn">${from}</b>`;
+  const t0=performance.now();
+  (function step(){const p=Math.min(1,(performance.now()-t0)/600),e=$('landn');
+    if(e){e.textContent=Math.round(from+(to-from)*p);e.style.display='inline-block';e.style.transform=`scale(${1+.6*Math.sin(p*Math.PI)})`;e.style.color=to>from?'var(--ok)':'var(--bad)'}
+    if(p<1)requestAnimationFrame(step);else if(e)e.style.color=''})();
+}
+const cv=$('cv'), ctx=cv.getContext('2d'), view=$('view');
+
+async function api(path,method='GET',body){
+  const r=await fetch(API+path,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});
+  let j=null; try{j=await r.json()}catch(e){}
+  if(j===null||!r.ok){const e=new Error((j&&j.error)||`Server problem (HTTP ${r.status}): the /api/canvas function is not answering. Check it is deployed.`);e.status=r.status;throw e}
+  return j;
+}
+
+// ---------- drawing
+function fit(){cv.width=view.clientWidth;cv.height=view.clientHeight;draw()}
+function reset(){scale=Math.min(view.clientWidth/(world.w*CELL),view.clientHeight/(world.h*CELL));ox=(view.clientWidth-world.w*CELL*scale)/2;oy=(view.clientHeight-world.h*CELL*scale)/2}
+function shade(hex,f){const n=parseInt(hex.slice(1),16);let r=n>>16,g=n>>8&255,b=n&255;r=Math.round(r*f);g=Math.round(g*f);b=Math.round(b*f);return`rgb(${r},${g},${b})`}
+function draw(){
+  ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.setTransform(scale,0,0,scale,ox,oy);
+  ctx.fillStyle='#161b26';ctx.fillRect(0,0,world.w*CELL,world.h*CELL);
+  if(scale>=2){ctx.strokeStyle='#ffffff10';ctx.lineWidth=1/scale;ctx.beginPath();
+    for(let x=0;x<=world.w;x++){ctx.moveTo(x*CELL,0);ctx.lineTo(x*CELL,world.h*CELL)}
+    for(let y=0;y<=world.h;y++){ctx.moveTo(0,y*CELL);ctx.lineTo(world.w*CELL,y*CELL)}
+    ctx.stroke()}
+  for(const k in world.cells){
+    const [o,wl]=world.cells[k], [x,y]=k.split(',').map(Number), c=(world.o[o]||{}).c||'#888';
+    ctx.fillStyle=c;ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+    if(wl>0){const t=Math.min(CELL/2-.5,wl*.9);ctx.strokeStyle=shade(c,.35);ctx.lineWidth=t;ctx.strokeRect(x*CELL+t/2,y*CELL+t/2,CELL-t,CELL-t)}
+  }
+  const tn=performance.now();
+  fx=fx.filter(f=>tn-f.t<f.d);
+  for(const f of fx){const p=(tn-f.t)/f.d,X=f.x*CELL,Y=f.y*CELL;
+    if(f.k==='spark'){ctx.globalAlpha=1-p;ctx.fillStyle=f.c;const s=2*(1-p)+.5;ctx.fillRect(f.x+f.vx*p-s/2,f.y+f.vy*p+p*p*8-s/2,s,s)}
+    else if(f.k==='pop'){ctx.globalAlpha=(1-p)*.9;ctx.fillStyle='#fff';ctx.fillRect(X,Y,CELL,CELL);ctx.globalAlpha=1-p;ctx.strokeStyle=f.c;ctx.lineWidth=1.2;const r=CELL*(.6+p*2.2);ctx.strokeRect(X+CELL/2-r/2,Y+CELL/2-r/2,r,r)}
+    else if(f.k==='cap'){ctx.globalAlpha=(1-p)*.85;ctx.fillStyle='#ffdd55';ctx.fillRect(X,Y,CELL,CELL);ctx.globalAlpha=1-p;ctx.strokeStyle=f.c;ctx.lineWidth=1.5;const r=CELL*(.6+p*3);ctx.strokeRect(X+CELL/2-r/2,Y+CELL/2-r/2,r,r)}
+    else if(f.k==='wall'){ctx.globalAlpha=(1-p);ctx.strokeStyle='#ffd34d';ctx.lineWidth=1.5;ctx.strokeRect(X+.5-p*2,Y+.5-p*2,CELL-1+p*4,CELL-1+p*4)}
+    else if(f.k==='hit'){ctx.globalAlpha=(1-p)*.85;ctx.fillStyle='#ff4d4d';ctx.fillRect(X,Y,CELL,CELL)}
+    else if(f.k==='float'){ctx.globalAlpha=1-p*p;ctx.fillStyle=f.c;ctx.font='bold 7px system-ui';ctx.fillText(f.txt,X,Y-p*16)}
+    ctx.globalAlpha=1}
+  if(sel.length){ctx.strokeStyle='#fff';ctx.lineWidth=(2+Math.sin(tn/140))/scale;ctx.setLineDash([2,1.5]);ctx.lineDashOffset=-tn/70;
+    for(const [x,y] of sel){ctx.strokeRect(x*CELL+1/scale,y*CELL+1/scale,CELL-2/scale,CELL-2/scale)}ctx.setLineDash([])}
+  if(fx.length||sel.length)anim();
+  if(scale>=3.5){ctx.fillStyle='#fff';ctx.font='3px system-ui';
+    for(const k in world.cells){const wl=world.cells[k][1];if(wl>0){const [x,y]=k.split(',').map(Number);ctx.fillText(wl,x*CELL+2.8,y*CELL+5.6)}}}
+}
+function cellAt(ev){const r=view.getBoundingClientRect();const x=Math.floor(((ev.clientX-r.left-ox)/scale)/CELL),y=Math.floor(((ev.clientY-r.top-oy)/scale)/CELL);return(x>=0&&y>=0&&x<world.w&&y<world.h)?[x,y]:null}
+
+// ---------- pan / zoom / select
+let drag=null,pinch=null;const ptrs=new Map();
+view.addEventListener('pointerdown',e=>{view.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);drag={x:e.clientX,y:e.clientY,ox,oy,moved:false}});
+view.addEventListener('pointermove',e=>{
+  if(ptrs.has(e.pointerId))ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===2){const [a,b]=[...ptrs.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1]);if(pinch){zoomAt((a[0]+b[0])/2,(a[1]+b[1])/2,d/pinch)}pinch=d;drag=null;return}
+  pinch=null;
+  if(drag){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dy)>5)drag.moved=true;if(drag.moved){ox=drag.ox+dx;oy=drag.oy+dy;draw()}}
+  const c=cellAt(e),tip=$('tip');
+  if(c&&!drag?.moved){const cell=world.cells[c[0]+','+c[1]];tip.style.display='block';tip.style.left=e.offsetX+14+'px';tip.style.top=e.offsetY+14+'px';
+    tip.textContent=`(${c[0]},${c[1]}) `+(cell?`${(world.o[cell[0]]||{}).n||'?'} · wall ${cell[1]}`:'unclaimed')}else tip.style.display='none'});
+view.addEventListener('pointerup',e=>{ptrs.delete(e.pointerId);pinch=null;
+  if(drag&&!drag.moved&&ptrs.size===0){const c=cellAt(e);if(c)pick(c)}drag=null});
+view.addEventListener('pointerleave',()=>$('tip').style.display='none');
+function zoomAt(px,py,f){const r=view.getBoundingClientRect(),x=px-r.left,y=py-r.top,ns=Math.max(.3,Math.min(30,scale*f));f=ns/scale;ox=x-(x-ox)*f;oy=y-(y-oy)*f;scale=ns;draw()}
+view.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.clientX,e.clientY,e.deltaY<0?1.15:1/1.15)},{passive:false});
+function pick([x,y]){
+  if(!me){msg('Log in to play.',1);return}
+  const i=sel.findIndex(s=>s[0]===x&&s[1]===y);
+  if(i>=0)sel.splice(i,1);else{if(sel.length>=me.power){sel.shift()}sel.push([x,y])}
+  updSel();draw();
+  if(sel.length&&document.querySelector('#go'))fxAdd({k:'pop',x,y,c:'#ffffff',d:350});
+}
+
+// ---------- UI
+function msg(t,bad){const m=$('msg');m.textContent=t;m.className=bad?'err':'good'}
+const HELP={claim:'Claim empty squares within your reach of your land (your first square can go anywhere).',wall:'Reinforce your own squares. Walls up to level 5 absorb attacks.',attack:'Hit an enemy square within your reach. Each hit removes 1 wall level; unwalled squares are captured.'};
+function updSel(){$('help').textContent=HELP[action]+` Selected ${sel.length}/${me?me.power:1}.`}
+document.querySelectorAll('#acts button').forEach(b=>b.onclick=()=>{action=b.dataset.a;document.querySelectorAll('#acts button').forEach(x=>x.classList.toggle('on',x===b));updSel()});
+$('clr').onclick=()=>{sel=[];updSel();draw()};
+$('go').onclick=async()=>{
+  try{const cs=sel.slice(),r=await api('turn','POST',{action,cells:cs});me=r.me;me.skew=me.now-Date.now();sel=[];
+    burst(cs,action==='attack'?'#ff6b6b':action==='wall'?'#ffd34d':me.color);fxAdd({k:'float',x:cs[0][0],y:cs[0][1],txt:'+'+r.done,c:'#4cd98a',d:1300});msg(`Done: ${r.done} square${r.done>1?'s':''}${r.captured?`, ${r.captured} captured`:''}.`);await poll(true);renderMe()}
+  catch(e){msg(e.message,1);if(e.status===401)logout()}
+};
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function renderMe(){
+  const a=$('acct');
+  if(!me){a.innerHTML='<h3>Account</h3><button id="lg" style="width:100%">Log in / Sign up</button>';$('lg').onclick=()=>$('modal').style.display='flex';$('turnBox').style.display=$('teamBox').style.display='none';return}
+  a.innerHTML=`<h3>Account</h3><div class="row" style="align-items:center"><span class="dot" style="background:${me.color}"></span><b class="sp">${esc(me.name)}</b><button class="alt" id="lo" style="flex:none">Log out</button></div><div style="color:var(--dim);margin-top:4px">${esc(me.teamName||me.territory||'Solo')}</div>`;
+  $('lo').onclick=logout;
+  $('turnBox').style.display='block';updLand();$('pw').textContent=`Squares per turn: ${me.power} · Reach: ${me.reach} · Cooldown: ${fmt(me.cd)}`+(me.team?' (team bonus)':'');
+  updSel();
+  const tb=$('teamBox');tb.style.display='block';
+  if(me.team){const t=world.t[me.team];tb.innerHTML=`<h3>Your team</h3><b>${esc(me.teamName)}</b> <span style="color:var(--dim)">· ${t?t.m.length:1} members</span><div class="tm" style="margin:6px 0">${(t?t.m:[]).map(n=>`<div>👤 ${esc(n)}</div>`).join('')}</div><div style="color:var(--dim);font-size:12px;margin-bottom:8px">Every 2 members add +1 square per turn (max 8) and +1 reach (max 6) for everyone.</div><button class="alt" id="tleave" style="width:100%">Leave team</button>`;
+    $('tleave').onclick=()=>teamCall('team/leave',{})}
+  else{const list=Object.entries(world.t).filter(([,t])=>t.m.length<50);
+    tb.innerHTML=`<h3>Teams</h3>${list.map(([id,t])=>`<div class="row" style="align-items:center;margin-bottom:4px"><span class="dot" style="background:${t.c};flex:none"></span><span class="sp">${esc(t.n)} (${t.m.length})</span><button class="alt" data-j="${id}" style="flex:none">Join</button></div>`).join('')||'<div style="color:var(--dim);margin-bottom:6px">No teams yet.</div>'}
+      <input id="tname" placeholder="New team name" maxlength="24"><button id="tcreate" style="width:100%;margin-top:4px">Create team</button><div id="terr" class="err" style="margin-top:4px"></div>`;
+    tb.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>teamCall('team/join',{id:b.dataset.j}));
+    $('tcreate').onclick=()=>teamCall('team/create',{name:$('tname').value,color:me.color})}
+}
+async function teamCall(p,b){try{const r=await api(p,'POST',b);me=r.me;await poll(true);renderMe()}catch(e){const t=$('terr');if(t)t.textContent=e.message;else msg(e.message,1)}}
+function renderLB(){
+  const n={};for(const k in world.cells){const o=world.cells[k][0];n[o]=(n[o]||0)+1}
+  const rows=Object.entries(n).sort((a,b)=>b[1]-a[1]).slice(0,10);
+  $('lb').innerHTML=rows.map(([o,c],i)=>{const i2=world.o[o]||{};return`<div><span style="width:18px;color:var(--dim)">${i+1}</span><span class="dot" style="background:${i2.c||'#888'}"></span><span class="sp">${esc(i2.n||'?')}</span><b>${c}</b></div>`}).join('')||'<span style="color:var(--dim)">No land claimed yet. Be first!</span>';
+}
+function tick(){
+  if(!me)return;
+  const left=Math.max(0,me.next-(Date.now()+(me.skew||0))),s=Math.ceil(left/1000);
+  $('timer').textContent=left?String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'):'READY';
+  $('timer').style.color=left?'var(--ink)':'var(--ok)';
+  if(left>0)wasWaiting=true;else if(wasWaiting){wasWaiting=false;bn('Your turn is ready!')}$('go').disabled=!!left||!sel.length;
+  const tot=Math.max(1,me.next-(me.last||0));$('barfill').style.width=(left?Math.min(100,100-left/tot*100):100)+'%';
+  $('timer').classList.toggle('ready',!left);$('go').classList.toggle('ready',!left&&sel.length>0);
+}
+setInterval(tick,500);
+
+// ---------- auth
+let mode='L',gcMode=false,gcred='';
+function setMode(m){mode=m;gcMode=false;$('p').style.display='';$('tL').classList.toggle('on',m==='L');$('tR').classList.toggle('on',m==='R');$('regOnly').style.display=m==='R'?'block':'none';$('auth').textContent=m==='L'?'Log in':'Create account';$('aerr').textContent=''}
+$('tL').onclick=()=>setMode('L');$('tR').onclick=()=>setMode('R');
+$('guest').onclick=e=>{e.preventDefault();$('modal').style.display='none'};
+$('usepw').onclick=e=>{e.preventDefault();showPw()};
+if($('gst'))$('gst').onclick=async()=>{try{await guestLogin();$('modal').style.display='none'}catch(e){$('aerr').className='err';$('aerr').textContent=e.message}};
+$('auth').onclick=async()=>{
+  if(gcMode)return googleLogin({username:$('u').value.trim(),territory:$('tn').value,color:$('col').value});
+  try{const body={username:$('u').value.trim(),password:$('p').value};
+    if(mode==='R'){body.territory=$('tn').value;body.color=$('col').value}
+    const r=await api(mode==='L'?'login':'register','POST',body);
+    token=r.token;localStorage.setItem('tc_token',token);setMe(r.me);$('modal').style.display='none';$('p').value=''}
+  catch(e){$('aerr').textContent=e.message}
+};
+$('p').addEventListener('keydown',e=>{if(e.key==='Enter')$('auth').click()});
+function setMe(m){me=m;landShown=null;if(me)me.skew=me.now-Date.now();renderMe();pollNotes()}
+async function logout(){try{await api('logout','POST')}catch(e){}token='';localStorage.removeItem('tc_token');me=null;sel=[];notes={items:[],unseen:0,seen:0};notesInit=false;renderMe();renderNotes();draw();$('modal').style.display='flex'}
+async function guestLogin(){
+  const cols=['#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c'],r2=()=>Math.random().toString(36).slice(2,8);
+  const r=await api('register','POST',{username:'guest_'+r2(),password:r2()+r2()+'x1',color:cols[Math.floor(Math.random()*cols.length)]});
+  if(!r.token)throw new Error('The canvas server did not answer. Check that functions/api/canvas/[[path]].js is deployed and SYNC_BUCKET is bound.');
+  token=r.token;localStorage.setItem('tc_token',token);setMe(r.me);
+}
+
+// ---------- Google sign-in
+let gReady=false,gTimer=0;
+function showPw(){$('pwBox').style.display='block';$('usepw').style.display='none'}
+async function initGoogle(){
+  const st=$('gstat');clearTimeout(gTimer);
+  try{const c=await api('config');
+    if(!c.clientId){st.className='err';st.textContent='Google sign-in is not set up on the server yet (missing GOOGLE_CLIENT_ID). Use a username instead.';showPw();return}
+    if(!window.google||!google.accounts){await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.onload=res;s.onerror=rej;document.head.appendChild(s)})}
+    google.accounts.id.initialize({client_id:c.clientId,callback:r=>{gcred=r.credential;googleLogin({})}});
+    $('gbtn').innerHTML='';
+    google.accounts.id.renderButton($('gbtn'),{theme:'filled_blue',size:'large',text:'continue_with',width:280});
+    st.className='';st.textContent='Sign in with your Google account';gReady=true;
+  }catch(e){
+    st.className='err';st.innerHTML='Not connected to the server yet. <a href="#" id="gretry" style="color:var(--acc)">Retry</a>';
+    $('gretry').onclick=ev=>{ev.preventDefault();st.className='';st.textContent='Connecting to the server…';initGoogle()};
+    gTimer=setTimeout(()=>{if(!gReady)initGoogle()},8000);
+  }
+}
+async function googleLogin(extra){
+  $('aerr').className='err';$('aerr').textContent='';
+  try{const r=await api('google','POST',{credential:gcred,...extra});
+    if(r.need==='username'){showPw();setMode('R');gcMode=true;$('p').style.display='none';$('auth').textContent='Finish Google sign-up';$('aerr').className='good';$('aerr').textContent='Pick a username and colour to finish.';return}
+    token=r.token;localStorage.setItem('tc_token',token);setMe(r.me);$('modal').style.display='none'}
+  catch(e){$('aerr').textContent=e.message;if(e.message.includes('taken')){gcMode=true}}
+}
+
+// ---------- notifications (inbox + browser alerts + optional email)
+let notes={items:[],unseen:0,seen:0},notesInit=false,wasWaiting=false;const seenIds=new Set();
+function bn(t){if('Notification' in window&&Notification.permission==='granted'){try{new Notification('Territory Canvas',{body:t})}catch(e){}}}
+async function pollNotes(){
+  if(!me)return;
+  try{const r=await api('inbox');
+    for(const i of r.items){const id=i.t+i.text;if(!seenIds.has(id)){seenIds.add(id);if(notesInit&&i.t>r.seen){bn(i.text);if(i.type==='atk')shake()}}}
+    notesInit=true;notes=r;renderNotes();
+  }catch(e){}
+}
+function renderNotes(){
+  const b=$('noteBox');if(!me){b.style.display='none';return}
+  b.style.display='block';
+  b.innerHTML=`<h3>Notifications${notes.unseen?` <span style="color:var(--bad)">(${notes.unseen} new)</span>`:''}</h3>`+
+    (notes.items.slice(0,6).map(i=>`<div style="font-size:12px;padding:3px 0;color:${i.t>notes.seen?'var(--ink)':'var(--dim)'}">${esc(i.text)}</div>`).join('')||'<div style="color:var(--dim);font-size:12px">Nothing yet. You will see attacks and team news here.</div>')+
+    `<div class="row" style="margin-top:8px"><button class="alt" id="nread">Mark read</button><button class="alt" id="nperm">Browser alerts</button></div>`+
+    (me.email?`<label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12px"><input type="checkbox" id="nmail" style="width:auto;margin:0" ${me.emailOn?'checked':''}> Email me when I'm attacked</label>`:'<div style="color:var(--dim);font-size:12px;margin-top:8px">Sign in with Google to get email alerts.</div>');
+  $('nread').onclick=async()=>{await api('inbox/seen','POST');pollNotes()};
+  $('nperm').onclick=async()=>{if(!('Notification' in window)){msg('This browser has no notifications.',1);return}const p=await Notification.requestPermission();msg(p==='granted'?'Browser alerts on (while this tab is open).':'Alerts blocked in browser settings.',p!=='granted')};
+  const nm=$('nmail');if(nm)nm.onchange=async()=>{try{const r=await api('settings','POST',{emailOn:nm.checked});me.emailOn=r.emailOn}catch(e){}};
+}
+
+// ---------- live updates
+async function poll(force){
+  try{const r=await api('state?since='+(force?0:world.v));
+    if(!r.same){const first=!world.v,old=world.cells;world=r;if(first)reset();else diffFx(old,r.cells);renderLB();if(me)renderMe();draw()}}catch(e){}
+}
+(async()=>{
+  if(!ALLOW_GUEST&&$('gst'))$('gst').remove();
+  fit();addEventListener('resize',fit);
+  if(token){try{setMe(await api('me'));$('modal').style.display='none'}catch(e){token='';localStorage.removeItem('tc_token')}}
+  await poll(true);fit();renderMe();
+  setInterval(poll,4000);setInterval(pollNotes,15000);initGoogle();
+})();
+</script>
+</body>
+</html>
